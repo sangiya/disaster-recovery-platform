@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        stack:
+          - terraform/modules/s3-replication
+          - terraform/modules/route53-failover
+          - terraform/primary
+          - terraform/dr
+          - terraform/global
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+
+      - name: terraform fmt (${{ matrix.stack }})
+        run: terraform -chdir=${{ matrix.stack }} fmt -check -recursive
+
+      - name: terraform init (${{ matrix.stack }})
+        run: terraform -chdir=${{ matrix.stack }} init -backend=false -input=false
+
+      - name: terraform validate (${{ matrix.stack }})
+        run: terraform -chdir=${{ matrix.stack }} validate
+
+  script-syntax:
+    name: Shell script syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check scripts
+        run: |
+          bash -n scripts/trigger-failover.sh
+          bash -n scripts/trigger-failback.sh
+          bash -n scripts/dr-readiness-check.sh
+          echo "All scripts pass syntax check."
+
+  tfsec:
+    name: Security scan (tfsec)
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform
+          soft_fail: false
